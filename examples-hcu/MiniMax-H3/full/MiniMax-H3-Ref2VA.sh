@@ -12,6 +12,8 @@ export DIFFSYNTH_MODEL_BASE_PATH=path/to/models
 export DIFFSYNTH_SKIP_DOWNLOAD=True
 export HSA_FORCE_FINE_GRAIN_PCIE=1
 export WANDB_MODE=offline
+export DIFFSYNTH_CPU_ADAM_PIPELINE="${DIFFSYNTH_CPU_ADAM_PIPELINE:-off}"
+export DIFFSYNTH_FA_CPU_CACHE_LAYERS="${DIFFSYNTH_FA_CPU_CACHE_LAYERS:-0}"
 
 modelscope download --dataset DiffSynth-Studio/diffsynth_example_dataset --include "minimax_h3/MiniMax-H3-Ref2VA/*" --local_dir ./data/diffsynth_example_dataset
 

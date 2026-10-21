@@ -144,12 +144,13 @@ def fuse_bias_swiglu(x, bias=None):
 
 
 def _native_rmsnorm(x, weight, eps):
-    # Preserve the two casts in H3's native autograd graph, including rounding
-    # of the two gradient contributions when they return to the input dtype.
+    # Match nn.RMSNorm instead of substituting a hand-written GPU graph.
+    if hasattr(F, "rms_norm"):
+        return F.rms_norm(x, (x.shape[-1],), weight, eps)
+    # Match models.general_modules.RMSNorm on older PyTorch versions.
     variance = x.to(torch.float32).square().mean(dim=-1, keepdim=True)
-    inverse_rms = 1.0 / torch.sqrt(variance + eps)
-    normalized = (x.to(torch.float32) * inverse_rms).to(x.dtype)
-    return normalized if weight is None else normalized * weight.to(x.dtype)
+    normalized = (x * torch.rsqrt(variance + eps)).to(x.dtype)
+    return normalized if weight is None else normalized * weight
 
 
 def can_use_rmsnorm_add(x, residual, weight):

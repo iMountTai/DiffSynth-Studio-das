@@ -9,6 +9,12 @@ export DIFFSYNTH_SKIP_DOWNLOAD=True
 export HSA_FORCE_FINE_GRAIN_PCIE=1
 export WANDB_MODE=offline
 
+# LoRA recompute experiments; all disabled unless overridden before launch.
+export DIFFSYNTH_FA_CPU_CACHE_LAYERS="${DIFFSYNTH_FA_CPU_CACHE_LAYERS:-0}"
+export DIFFSYNTH_FA_GPU_CACHE_LAYERS="${DIFFSYNTH_FA_GPU_CACHE_LAYERS:-0}"
+export DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS="${DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS:-0}"
+export DIFFSYNTH_FA_CACHE_LOG="${DIFFSYNTH_FA_CACHE_LOG:-0}"
+
 # Supplied explicitly by start.sh; no node-count or rank inference.
 # Usage: bash MiniMax-H3-Ref2VA_4nodes.sh RANK NUM_MACHINES NUM_PROCESSES MASTER_ADDR MASTER_PORT
 MACHINE_RANK="${1:?Missing MACHINE_RANK}"

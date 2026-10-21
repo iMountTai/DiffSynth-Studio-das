@@ -35,8 +35,10 @@ for rank in "${!HOSTS[@]}"; do
   node_ip=${HOSTS[$rank]}
   log_file=${LOG_DIR}/node${rank}-${node_ip}.log
   # 参数和日志重定向均在目标容器内执行。
-  printf -v train_command 'mkdir -p -- %q && exec bash %q %q %q %q %q %q > %q 2>&1' \
-    "${LOG_DIR}" "${RUN_SCRIPT}" "${rank}" "${NUM_MACHINES}" \
+  printf -v train_command 'mkdir -p -- %q && exec env DIFFSYNTH_FA_CPU_CACHE_LAYERS=%q DIFFSYNTH_FA_GPU_CACHE_LAYERS=%q DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS=%q DIFFSYNTH_FA_CACHE_LOG=%q bash %q %q %q %q %q %q > %q 2>&1' \
+    "${LOG_DIR}" "${DIFFSYNTH_FA_CPU_CACHE_LAYERS:-0}" "${DIFFSYNTH_FA_GPU_CACHE_LAYERS:-0}" \
+    "${DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS:-0}" "${DIFFSYNTH_FA_CACHE_LOG:-0}" \
+    "${RUN_SCRIPT}" "${rank}" "${NUM_MACHINES}" \
     "${NUM_PROCESSES}" "${MASTER_ADDR}" "${MASTER_PORT}" "${log_file}"
   if (( rank == 0 )); then
     docker exec "${CONTAINER}" /bin/bash -ilc "${train_command}" &

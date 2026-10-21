@@ -57,7 +57,7 @@ else:
     from .general_modules import RMSNorm
 
 class MiniMaxH3RMSNorm(RMSNorm):
-    def forward(self, x, rope_freqs=None, gate=None, other=None, indices=None):
+    def forward(self, x, gate=None, other=None, indices=None):
         if gate is not None:
             # Access weight inside its owner so ZeRO-3 hooks remain effective.
             if gate.dtype == other.dtype and can_use_rmsnorm_add(other, x, self.weight):
@@ -65,13 +65,13 @@ class MiniMaxH3RMSNorm(RMSNorm):
                 return rmsnorm_add(update, x, self.weight, self.eps, return_residual=True)
             residual = modulate_gate(x, gate, other, indices)
             return super().forward(residual), residual
-        # Keep native RMSNorm; only its RoPE consumer may be compiled.
-        result = super().forward(x)
-        return _apply_rope(result, rope_freqs) if rope_freqs is not None else result
+        return super().forward(x)
 
 
-def _norm(size: int, *, eps: float) -> RMSNorm:
-    return MiniMaxH3RMSNorm(size, eps=eps)
+def _norm(size: int, *, eps: float, fuse_residual: bool = False) -> RMSNorm:
+    # Only the residual fusion needs an extended module interface.
+    norm = MiniMaxH3RMSNorm if fuse_residual else RMSNorm
+    return norm(size, eps=eps)
 
 
 
@@ -171,8 +171,11 @@ class MiniMaxH3Attention(nn.Module):
         qkv = self.qkv_proj(x)
         qkv = qkv.view(total, self.num_heads, 3, self.head_dim)
         q, k, v = qkv.unbind(dim=2)
-        q = self.q_norm(q, rope_freqs)
-        k = self.k_norm(k, rope_freqs)
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+        if rope_freqs is not None:
+            q = _apply_rope(q, rope_freqs)
+            k = _apply_rope(k, rope_freqs)
         out = _sdpa_varlen_attention(q, k, v, cu_seqlens=cu_seqlens, softmax_scale=self.softmax_scale, max_seqlen=max_seqlen)
         out = out.reshape(total, self.num_heads * self.head_dim)
         return self.out_proj(out)
@@ -241,7 +244,7 @@ class MiniMaxH3DiTBlock(nn.Module):
     def __init__(self, hidden_size, num_attention_heads, attention_head_dim, ffn_hidden_size, time_embed_dim, adaln_out_features, norm_eps, qk_norm_eps):
         super().__init__()
         self.norm1 = _norm(hidden_size, eps=norm_eps)
-        self.norm2 = _norm(hidden_size, eps=norm_eps)
+        self.norm2 = _norm(hidden_size, eps=norm_eps, fuse_residual=True)
         self.attn = MiniMaxH3Attention(hidden_size, num_attention_heads, attention_head_dim, qk_norm_eps)
         self.mlp = MiniMaxH3MLP(hidden_size, ffn_hidden_size)
         self.adaln_proj = MiniMaxH3AdalnProj(hidden_size, time_embed_dim, adaln_out_features, expand_ratio=6, modality_num=MINIMAX_H3_ADALN_MODALITY_NUM)
@@ -252,7 +255,7 @@ class MiniMaxH3DiTBlock(nn.Module):
         h = self.norm1(x)
         h = _modulate_scale_shift(h, shift_msa, scale_msa, combined_indices)
         h = self.attn(h, rope_freqs=rope_freqs, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-        h, residual = self.norm2(residual, None, gate_msa, h, combined_indices)
+        h, residual = self.norm2(residual, gate_msa, h, combined_indices)
         h = _modulate_scale_shift(h, shift_mlp, scale_mlp, combined_indices)
         h = self.mlp(h)
         return _modulate_gate(residual, gate_mlp, h, combined_indices)
@@ -399,7 +402,7 @@ class MiniMaxH3DiT(nn.Module):
         for block_id, block in enumerate(self.blocks):
             hidden = gradient_checkpoint_forward(
                 block,
-                use_gradient_checkpointing,
+                use_gradient_checkpointing and not getattr(block, "_h3_no_checkpoint", False),
                 use_gradient_checkpointing_offload,
                 hidden,
                 t_emb=t_emb,

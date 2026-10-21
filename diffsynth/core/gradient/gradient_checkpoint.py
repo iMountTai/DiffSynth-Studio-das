@@ -37,19 +37,27 @@ def gradient_checkpoint_forward(
     *args,
     **kwargs,
 ):
+    fa_cache = None
+    fa_cache_mode = getattr(model, "_h3_fa_cache_mode", None)
+    if fa_cache_mode is not None:
+        if not (use_gradient_checkpointing and _HAS_DEEPSPEED and deepspeed.checkpointing.is_configured()):
+            raise RuntimeError("H3 FA cache requires configured DeepSpeed reentrant checkpointing")
+        from ..attention.h3_fa_cache import FACheckpointCache
+        fa_cache = FACheckpointCache(mode=fa_cache_mode)
     if use_gradient_checkpointing and _HAS_DEEPSPEED and deepspeed.checkpointing.is_configured():
         kwarg_keys = tuple(kwargs)
         all_args = args + tuple(kwargs.values())
         if not judge_args_requires_grad(*all_args):
+            if fa_cache is not None:
+                raise RuntimeError("H3 FA cache checkpoint inputs must require gradients")
             # get the first grad_enabled tensor from un_checkpointed forward
             model_output = model(*args, **kwargs)
         else:
+            function = create_custom_forward_use_reentrant(model, len(args), kwarg_keys)
+            if fa_cache is not None:
+                function = fa_cache.wrap(function)
             model_output = deepspeed.checkpointing.checkpoint(
-                create_custom_forward_use_reentrant(
-                    model,
-                    len(args),
-                    kwarg_keys,
-                ),
+                function,
                 *all_args,
             )
         return model_output

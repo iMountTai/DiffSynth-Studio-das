@@ -13,6 +13,12 @@ export DIFFSYNTH_SKIP_DOWNLOAD=True
 export HSA_FORCE_FINE_GRAIN_PCIE=1
 export WANDB_MODE=offline
 
+# LoRA recompute experiments; all disabled unless overridden before launch.
+export DIFFSYNTH_FA_CPU_CACHE_LAYERS="${DIFFSYNTH_FA_CPU_CACHE_LAYERS:-0}"
+export DIFFSYNTH_FA_GPU_CACHE_LAYERS="${DIFFSYNTH_FA_GPU_CACHE_LAYERS:-0}"
+export DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS="${DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS:-0}"
+export DIFFSYNTH_FA_CACHE_LOG="${DIFFSYNTH_FA_CACHE_LOG:-0}"
+
 modelscope download --dataset DiffSynth-Studio/diffsynth_example_dataset --include "minimax_h3/MiniMax-H3-Ref2VA/*" --local_dir ./data/diffsynth_example_dataset
 
 # stage 1 (data process)

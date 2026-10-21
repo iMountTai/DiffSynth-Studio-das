@@ -68,6 +68,29 @@ class MiniMaxH3TrainingModule(DiffusionTrainingModule):
         )
         self.pipe.scheduler_audio.set_timesteps(1000, training=True)
 
+        fa_cpu_layers = int(os.environ.get("DIFFSYNTH_FA_CPU_CACHE_LAYERS", "0"))
+        fa_gpu_layers = int(os.environ.get("DIFFSYNTH_FA_GPU_CACHE_LAYERS", "0"))
+        no_checkpoint_last = int(os.environ.get("DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS", "0"))
+        if not task.endswith(":data_process") and (fa_cpu_layers or fa_gpu_layers or no_checkpoint_last):
+            if getattr(self.pipe, "dit", None) is None:
+                raise RuntimeError("H3 recompute experiments require a DiT model")
+            blocks = self.pipe.dit.blocks
+            if not 0 <= no_checkpoint_last <= len(blocks):
+                raise ValueError("DIFFSYNTH_H3_NO_CHECKPOINT_LAST_LAYERS is out of range")
+            if no_checkpoint_last and not use_gradient_checkpointing:
+                raise RuntimeError("Skipping selected checkpoints requires block checkpointing enabled")
+            if no_checkpoint_last and use_gradient_checkpointing_offload:
+                raise RuntimeError("Skipping selected checkpoints is incompatible with checkpoint offload")
+            if max(fa_cpu_layers, fa_gpu_layers) + no_checkpoint_last > len(blocks):
+                raise ValueError("FA cache layers and no-checkpoint layers overlap")
+            if fa_cpu_layers or fa_gpu_layers:
+                from diffsynth.core.attention.h3_fa_cache import configure_fa_cache
+                configure_fa_cache(self.pipe.dit, use_gradient_checkpointing, use_gradient_checkpointing_offload)
+            if no_checkpoint_last:
+                for block in blocks[-no_checkpoint_last:]:
+                    block._h3_no_checkpoint = True
+                print(f"H3 whole-block checkpoint disabled on last {no_checkpoint_last} DiT blocks", flush=True)
+
         if lora_base_model in ("", "dit") and getattr(self.pipe, "dit", None) is not None:
             from diffsynth.core.ops.minimax_h3_lora import enable_minimax_h3_unit_lora_scale
             count = enable_minimax_h3_unit_lora_scale(self.pipe.dit)
